@@ -33,7 +33,7 @@ def send_command(ser,command,command_value):
 def confirm_command(ser):
 	while ser.in_waiting:
 		s = ser.readline()
-		print(s.decode("latin-1"))
+		#print(s.decode("latin-1"))
 
 def gun_laying(ser,pos):
 	(x,y) = pos
@@ -101,7 +101,8 @@ class target():
 			self.hp = 100
 		self.match = False
 		self.vel = 50*(np.array(self.cur_pos)-np.array(self.prev_pos))
-		self.velfilt = np.clip(self.velfilt*0.85+self.vel*0.1,-300,300)
+		self.vel[1] = self.vel[1]*0.3
+		self.velfilt = np.clip(self.velfilt*0.9+self.vel*0.1,-300,300)*t_step*process_fps
 		self.avg_pos = self.avg_pos*0.8+self.cur_pos*0.2
 		self.prev_pos = self.cur_pos
 
@@ -145,12 +146,24 @@ if __name__ == "__main__":
 	threshval = 50
 	kersize = 85
 	keriter = 3
-	vellimx = 60
-	vellimy = 10
+	vellimx = 100
+	vellimy = 30
+	acclimx = 15
+	acclimy = 5
+	
+	
 	x = 1400
 	y = 1400
+	aim_x = 1400
+	aim_y = 1400
+	x0 = 1400
+	y0 = 1400
+	vx = 0
+	vy = 0
 	vx0 = 0
 	vy0 = 0
+	ax = 0
+	ay = 0
 	OPEN = 2020
 	CLOSE = 1700
 	SHOOT = False
@@ -160,6 +173,7 @@ if __name__ == "__main__":
 	group = 0
 	power_max = 1500
 	power = 1400
+	t_step = 0.16
 	
 	if os.path.exists('elevp.pickle') and os.path.exists('travp.pickle'):
 		print("loading SVM pointing data from file")
@@ -294,7 +308,7 @@ if __name__ == "__main__":
 						max_targ_size = targ.size
 						primary_target = targ
 		if primary_target: #if we have a target
-			power = np.clip(power+3,1400,power_max)
+			power = np.clip(power+5*process_fps*t_step,1400,power_max)
 			if seract and SHOOT:
 				send_command(ser,'f',power)
 				send_command(ser,'p', 1)
@@ -302,25 +316,36 @@ if __name__ == "__main__":
 					delay = time.time()
 					targac = True
 
-			aim = primary_target.avg_pos + 0.3*primary_target.velfilt+[0,-30] + 0.001*(abs(primary_target.velfilt)*primary_target.velfilt)
+			aim = primary_target.avg_pos #+ 0.2*primary_target.velfilt+[0,-30] + 0.001*(abs(primary_target.velfilt)*primary_target.velfilt)
 			cv2.circle(frame,(int(aim[0]),int(aim[1])),5,(0,0,0),-1)
+			print(aim)
 			aim = aim*500./(frame_size)
+		
 			px = travp.predict([list(aim)])
 			py = elevp.predict([list(aim)])
-			print(px,py,list(aim))
-			vx = px-x
-			vy = py-y
-			vx = np.clip(vx-vx0,-vellimx,vellimx)  +vx0
-			vy = np.clip(vy-vy0,-vellimy,vellimy)  +vy0
-
+			
+			vx0 = vx
+			vy0 = vy
+			vx = np.clip(px-x,-vellimx,vellimx)
+			vy = np.clip(py-y,-vellimy,vellimy)
+			
+			ax = np.clip(vx - vx0,-acclimx,acclimx)
+			ay = np.clip(vy - vy0,-acclimy,acclimy)
+			
+			if vx*ax > 0:
+				vx = np.clip(vx0+ax,-vellimx,vellimx)
+			if vy*ay > 0:
+				vy = np.clip(vy0+ay,-vellimy,vellimy)
 
 			x = vx + x
 			y = vy + y
-
+			
+			#print(str(vx)+"\t"+str(ax)+"\t")
+			
 			if seract:
-				gun_laying(ser,(int(x),int(y-100)))
+				gun_laying(ser,(int(x),int(y)))
 				confirm_command(ser)
-
+				
 
 		else:
 			power = 1400
